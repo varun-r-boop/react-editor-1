@@ -1,0 +1,78 @@
+/* src/screenplay.css */
+/* Make editor text visible */
+.ProseMirror {
+    color: #000 !important;   /* BLACK TEXT */
+  }
+  
+  .ProseMirror p {
+    color: #000 !important;   /* BLACK TEXT for paragraphs */
+  }
+  
+/* Outer shell */
+.screenplay-shell {
+    width: 100%;
+    min-height: 100vh;
+    background: #f0f0f0;
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  /* Header bar */
+  .topbar {
+    width: 900px;
+    max-width: 95%;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .title {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  
+  .btn {
+    background: #222;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+  }
+  .btn:hover {
+    opacity: 0.8;
+  }
+  
+  /* Page container keeps page centered */
+  .page-container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  
+  /* The "page" */
+  .page {
+    background: #ffffff;
+    width: 650px;     /* screenplay page width */
+    padding: 60px 70px;
+    box-shadow: 0 0 15px rgba(0,0,0,0.15);
+    min-height: 900px;
+    border-radius: 4px;
+  }
+  
+  /* TipTap editor style */
+  .ProseMirror {
+    outline: none;
+    width: 100%;
+    font-family: "Courier Prime", monospace;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  
+  .ProseMirror p {
+    margin: 0 0 14px;
+  }
+  
