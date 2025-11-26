@@ -154,13 +154,14 @@ export function VirtualizedEditor({ editor }: { editor: Editor | null }) {
    * ------------------------------------------------------------- */
   return (
     <div ref={scrollRef} style={scrollContainerStyle}>
-      <div style={pagesWrapperStyle}>
+      {/* <div style={pagesWrapperStyle}>
         {pagesToRender.map((p) => renderStaticPage(p))}
-      </div>
+      </div> */}
 
       {/* The real TipTap EditorContent (never unmounted) */}
       <div ref={liveEditorRef} style={liveEditorContainerStyle}>
         <EditorContent editor={editor!} />
+        <div id="editor-block-ui" />
       </div>
     </div>
   );

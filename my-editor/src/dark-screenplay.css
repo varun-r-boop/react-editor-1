@@ -79,3 +79,92 @@
   white-space: pre-wrap;
   width: 100%;
 }
+/* Main wrapper for the break */
+.pagebreak-container {
+  display: block !important;
+  width: 100%;
+  margin: 24px 0;     /* push away from dialogue text */
+  padding: 0;
+  line-height: normal;
+  position: relative;
+
+  /* Ensure it breaks OUTSIDE inline text */
+  clear: both;
+}
+
+.pagebreak-line {
+  display: block;
+  width: 100%;
+  height: 16px;
+  background: #e5e5e5;
+  border-radius: 4px;
+  margin: 12px 0 4px 0; /* separate from text above */
+}
+
+.pagebreak-number {
+  display: block;
+  text-align: right;
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* IMPORTANT: Prevent paragraphs from absorbing the pagebreak widget */
+p .pagebreak-container {
+  display: block;
+  width: 100%;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+  /* CHARACTER NAME */
+p[paragraphtype="Character"] {
+  text-align: center;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-top: 20px;
+  margin-bottom: 0px;
+  letter-spacing: 1px;
+  font-family: Courier, monospace;
+}
+
+/* DIALOGUE */
+p[paragraphtype="Dialogue"] {
+  margin-top: 4px;
+  margin-bottom: 12px;
+  font-family: Courier, monospace;
+
+
+  /* max-width: 500px; 
+  margin-left: 25%;
+  margin-right: 25%; */
+  line-height: 1.3;
+  white-space: pre-wrap;
+}
+.more-widget {
+  font-family: Courier, monospace;
+  text-align: center;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.contd-widget {
+  font-family: Courier, monospace;
+  text-align: center;
+  margin-bottom: 6px;
+  font-weight: bold;
+  font-size: 13px;
+}
+.dialogue-more {
+  text-align: center;
+  font-style: italic;
+  color: white;
+  margin-bottom: 4px;
+  margin-top: 8px;
+}
+
+.dialogue-contd {
+  text-align: center;
+  margin-top: 8px;
+  font-style: italic;
+}
