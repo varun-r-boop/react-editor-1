@@ -155,10 +155,10 @@ function pageBreakWidget(
   container.appendChild(num);
 
   // CONT’D label on next page
-  if (split && lastCharName) {
+  if (split) {
     const contd = document.createElement("div");
     contd.className = "dialogue-contd";
-    contd.textContent = `${lastCharName} (CONT'D)`;
+    contd.textContent = `${lastCharName ? lastCharName : ""} (CONT'D)`;
     container.appendChild(contd);
   }
 
@@ -243,7 +243,7 @@ function paginateParagraphs(args: {
       const nextPageIndex = pageNum + 1;
 
       if (
-        paragraphType === "Dialogue" &&
+        (paragraphType === "Dialogue"  || paragraphType === "Action") &&
         freeSpace > 48 &&
         height > freeSpace &&
         height > 48
@@ -270,7 +270,7 @@ function paginateParagraphs(args: {
 
           const widgetPos = pos + 1 + split.splitPos;
           pageBreakPositions.push(widgetPos);
-          const lastChar = node.attrs.charref || node.attrs.characterName || "CHARACTER";
+          const lastChar = node.attrs.charref || node.attrs.characterName || "";
           decorations.push(
             Decoration.widget(
               widgetPos,
