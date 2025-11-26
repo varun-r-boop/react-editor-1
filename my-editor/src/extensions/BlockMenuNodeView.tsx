@@ -1,13 +1,15 @@
 import { createRoot } from "react-dom/client";
 import { BlockMenu } from "../block-menu/BlockMenu";
 
-export const BlockMenuNodeView = (props) => {
+export const BlockMenuNodeView = (props: any) => {
   const { node, getPos, view } = props;
 
   // Create a DOM container for this block's portal
   const domElement = document.createElement("div");
   const uiRoot = document.getElementById("editor-block-ui");
-  uiRoot.appendChild(domElement);
+  if (uiRoot) {
+    uiRoot.appendChild(domElement);
+  }
 
   // Create React root (React 18 syntax)
   const root = createRoot(domElement);
@@ -34,7 +36,7 @@ export const BlockMenuNodeView = (props) => {
       root.render(null); // hide BlockMenu
     },
 
-    update(updatedNode) {
+    update(updatedNode: any) {
       props.node = updatedNode;
       render();
       return true;

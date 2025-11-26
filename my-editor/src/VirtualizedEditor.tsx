@@ -3,7 +3,6 @@ import { Editor } from "@tiptap/core";
 import { EditorContent } from "@tiptap/react";
 
 import { getPaginationPages } from "./plugins/paginationPlugin";
-import { serializeRangeToHTML } from "./utils/serializeRange";
 
 type PageInfo = {
   pageIndex: number;
@@ -32,7 +31,7 @@ export function VirtualizedEditor({ editor }: { editor: Editor | null }) {
       setPages(pg);
 
       const cursor = editor.state.selection.from;
-      const found = pg.find((p) => cursor >= p.start && cursor < p.end);
+      const found = pg.find((p : PageInfo) => cursor >= p.start && cursor < p.end);
       if (found) setActivePage(found.pageIndex);
     };
 
@@ -126,28 +125,28 @@ export function VirtualizedEditor({ editor }: { editor: Editor | null }) {
   /* -------------------------------------------------------------
    * 5) Render a static virtual page
    * ------------------------------------------------------------- */
-  const renderStaticPage = (page: PageInfo) => {
-    const html = serializeRangeToHTML(
-      editor!.schema,
-      editor!.state.doc,
-      page.start,
-      page.end
-    );
+  // const renderStaticPage = (page: PageInfo) => {
+  //   const html = serializeRangeToHTML(
+  //     editor!.schema,
+  //     editor!.state.doc,
+  //     page.start,
+  //     page.end
+  //   );
 
-    return (
-      <div
-        key={page.pageIndex}
-        className="vpage"
-        data-page-index={page.pageIndex}
-        style={pageStyle}
-        onClick={() => {
-          editor?.chain().focus().setTextSelection(page.start).run();
-          setActivePage(page.pageIndex);
-        }}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
-  };
+  //   return (
+  //     <div
+  //       key={page.pageIndex}
+  //       className="vpage"
+  //       data-page-index={page.pageIndex}
+  //       style={pageStyle}
+  //       onClick={() => {
+  //         editor?.chain().focus().setTextSelection(page.start).run();
+  //         setActivePage(page.pageIndex);
+  //       }}
+  //       dangerouslySetInnerHTML={{ __html: html }}
+  //     />
+  //   );
+  // };
 
   /* -------------------------------------------------------------
    * 6) Render page list + floating editor
@@ -179,23 +178,23 @@ const scrollContainerStyle: React.CSSProperties = {
   position: "relative",
 };
 
-const pagesWrapperStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "48px",
-  paddingTop: "40px",
-};
+// const pagesWrapperStyle: React.CSSProperties = {
+//   display: "flex",
+//   flexDirection: "column",
+//   gap: "48px",
+//   paddingTop: "40px",
+// };
 
-const pageStyle: React.CSSProperties = {
-  width: "680px",
-  minHeight: "900px",
-  background: "white",
-  color: "black",
-  padding: "48px",
-  boxShadow: "0 0 8px rgba(0,0,0,0.2)",
-  borderRadius: "4px",
-  boxSizing: "border-box",
-};
+// const pageStyle: React.CSSProperties = {
+//   width: "680px",
+//   minHeight: "900px",
+//   background: "white",
+//   color: "black",
+//   padding: "48px",
+//   boxShadow: "0 0 8px rgba(0,0,0,0.2)",
+//   borderRadius: "4px",
+//   boxSizing: "border-box",
+// };
 
 const liveEditorContainerStyle: React.CSSProperties = {
   position: "absolute",

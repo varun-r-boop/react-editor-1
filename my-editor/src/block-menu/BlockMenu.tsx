@@ -1,6 +1,6 @@
-﻿import React, { useState } from "react";
+﻿import { useState } from "react";
 
-export function BlockMenu({ node, position }) {
+export function BlockMenu({ node, position }: { node: any, position: any }) {
   const [open, setOpen] = useState(false);
 
   return (
