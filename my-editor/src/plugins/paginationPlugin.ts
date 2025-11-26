@@ -1,17 +1,35 @@
 // src/plugins/paginationPlugin.ts
-import { EditorState, Plugin, PluginKey } from "prosemirror-state";
+import { EditorState, Plugin, PluginKey, Transaction } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { DOMSerializer, Schema, Node as ProseMirrorNode } from "prosemirror-model";
-import { findParentNode } from 'prosemirror-utils';
-
 export const paginationKey = new PluginKey("paginationPlugin");
 
 const PAGE_HEIGHT = 800;
-const PAGE_HEADER_HEIGHT = 60;
 const DEFAULT_PAGE_WIDTH = 650;
-let decorationCache: any;
 let heightCache: any;
-let pageCache: any;
+
+interface ParagraphInfo {
+  pos: number;
+  top: number;
+  bottom: number;
+  pageTop: number;
+  paragraphType: string;
+}
+
+interface ParagraphPosition {
+  pos: number;
+  node: ProseMirrorNode;
+}
+
+interface HeightUpdate {
+  pos: number;
+  height: number;
+}
+
+interface SelectionRange {
+  from: number;
+  to: number;
+}
 
 /** Ensure a hidden measurement div exists inside editorEl (or document.body) */
 // function ensureMeasureDiv(editorEl: HTMLElement | null, width: number) {
@@ -65,6 +83,48 @@ function measureNodeHeight(serializer: DOMSerializer, node: ProseMirrorNode, wid
     return height;
 }
 
+function collectParagraphPositions(doc: ProseMirrorNode): ParagraphPosition[] {
+  const positions: ParagraphPosition[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name === "paragraph") {
+      positions.push({ pos, node });
+    }
+  });
+  return positions;
+}
+
+function collectChangedPositions(tr: Transaction, doc: ProseMirrorNode): number[] {
+  if (!tr.docChanged) return [];
+
+  const changed: number[] = [];
+  tr.steps.forEach(step => {
+    const map = step.getMap();
+    map.forEach((newStart, newEnd) => {
+      const size = doc.content.size;
+      let start = Math.max(0, Math.min(newStart, size));
+      let end = Math.max(0, Math.min(newEnd, size));
+      if (start > end) [start, end] = [end, start];
+      if (start === end) return;
+      doc.nodesBetween(start, end, (_, pos) => {
+        changed.push(pos);
+      });
+    });
+  });
+  return changed;
+}
+
+function getHeightMapFromCache(): Map<number, number> {
+  const map = new Map<number, number>();
+  if (Array.isArray(heightCache)) {
+    for (const entry of heightCache) {
+      if (typeof entry?.pos === "number" && typeof entry?.height === "number") {
+        map.set(entry.pos, entry.height);
+      }
+    }
+  }
+  return map;
+}
+
 function pageBreakWidget(
   pageNumber: number,
   freeSpace: number,
@@ -105,6 +165,207 @@ function pageBreakWidget(
   return container;
 }
 
+function ensureParagraphHeights(args: {
+  paragraphPositions: ParagraphPosition[];
+  serializer: DOMSerializer;
+  editorWidth: number;
+  selection: SelectionRange;
+  changedPositions: Set<number>;
+  force: boolean;
+}): { heightMap: Map<number, number>; heightUpdates: HeightUpdate[] } {
+  const { paragraphPositions, serializer, editorWidth, selection, changedPositions, force } = args;
+  const heightMap = getHeightMapFromCache();
+  const heightUpdates: HeightUpdate[] = [];
+
+  for (const { pos, node } of paragraphPositions) {
+    const cursorInside =
+      (selection.from >= pos && selection.from <= pos + node.nodeSize) ||
+      (selection.to >= pos && selection.to <= pos + node.nodeSize);
+
+    const cachedHeight = heightMap.get(pos);
+    const needsMeasurement =
+      force ||
+      cursorInside ||
+      changedPositions.has(pos) ||
+      !node.attrs.height ||
+      node.attrs.height <= 0 ||
+      typeof cachedHeight !== "number";
+
+    if (needsMeasurement) {
+      const height = measureNodeHeight(serializer, node, editorWidth);
+      heightMap.set(pos, height);
+      if (height !== node.attrs.height) {
+        heightUpdates.push({ pos, height });
+      }
+    } else if (typeof cachedHeight === "number") {
+      heightMap.set(pos, cachedHeight);
+    }
+  }
+
+  return { heightMap, heightUpdates };
+}
+
+function paginateParagraphs(args: {
+  paragraphPositions: ParagraphPosition[];
+  heightMap: Map<number, number>;
+  selection: SelectionRange;
+  serializer: DOMSerializer;
+  editorWidth: number;
+}): {
+  decorations: Decoration[];
+  pageBreakPositions: number[];
+  extraHeightUpdates: HeightUpdate[];
+  reuseDecorations: boolean;
+} {
+  const { paragraphPositions, heightMap, selection, serializer, editorWidth } = args;
+  const decorations: Decoration[] = [];
+  const pageBreakPositions: number[] = [];
+  const extraHeightUpdates: HeightUpdate[] = [];
+
+  let reuseDecorations = false;
+  let pageNum = 1;
+  let pageTop = 0;
+  let lastBottom = 0;
+  let prevParagraphInfo: ParagraphInfo | null = null;
+
+  for (const { pos, node } of paragraphPositions) {
+    const height = heightMap.get(pos) ?? node.attrs.height ?? 0;
+    const top = lastBottom;
+    const bottom = top + height;
+    const bottomRel = bottom - pageTop;
+    const paragraphType = node.attrs.paragraphType || "Action";
+    const startingPageTop = pageTop;
+    let paragraphPageStart = startingPageTop;
+    let effectiveBottom = bottom;
+
+    if (bottomRel > PAGE_HEIGHT) {
+      const freeSpace = PAGE_HEIGHT - (lastBottom - pageTop);
+      const nextPageIndex = pageNum + 1;
+
+      if (
+        paragraphType === "Dialogue" &&
+        freeSpace > 48 &&
+        height > freeSpace &&
+        height > 48
+      ) {
+        const dom = serializer.serializeNode(node);
+        const split = findSplitPosition(dom, freeSpace, editorWidth);
+        const cursorInside =
+          (selection.from >= pos && selection.from <= pos + node.nodeSize) ||
+          (selection.to >= pos && selection.to <= pos + node.nodeSize);
+
+        if (cursorInside && (!split || split.forceFit)) {
+          lastBottom = bottom;
+          reuseDecorations = true;
+          continue;
+        }
+
+        if (split && !split.forceFit) {
+          const topHeight = split.topdata.height;
+          const bottomHeight = split.bottomdata.height;
+          const combinedHeight = topHeight + bottomHeight;
+
+          extraHeightUpdates.push({ pos, height: combinedHeight });
+          heightMap.set(pos, combinedHeight);
+
+          const widgetPos = pos + 1 + split.splitPos;
+          pageBreakPositions.push(widgetPos);
+          const lastChar = node.attrs.charref || node.attrs.characterName || "CHARACTER";
+          decorations.push(
+            Decoration.widget(
+              widgetPos,
+              () => pageBreakWidget(nextPageIndex, 0, split, lastChar),
+              { key: `contd-${nextPageIndex}` }
+            )
+          );
+
+          lastBottom = top + topHeight;
+          pageNum++;
+          pageTop = lastBottom;
+          effectiveBottom = lastBottom;
+          prevParagraphInfo = {
+            pos,
+            top,
+            bottom: effectiveBottom,
+            pageTop: paragraphPageStart,
+            paragraphType,
+          };
+          continue;
+        }
+      }
+
+      let breakPos = pos;
+      let widgetFreeSpace = freeSpace;
+      let nextPageTop = lastBottom;
+
+      const sceneHeaderInfo =
+        prevParagraphInfo &&
+        prevParagraphInfo.paragraphType === "SceneHeader" &&
+        prevParagraphInfo.pageTop === pageTop &&
+        Math.abs(prevParagraphInfo.bottom - top) < 0.5
+          ? prevParagraphInfo
+          : null;
+
+      if (sceneHeaderInfo) {
+        breakPos = sceneHeaderInfo.pos;
+        const consumedBeforeHeader = sceneHeaderInfo.top - pageTop;
+        widgetFreeSpace = Math.max(0, PAGE_HEIGHT - consumedBeforeHeader);
+        nextPageTop = sceneHeaderInfo.top;
+        prevParagraphInfo = null;
+      }
+
+      pageBreakPositions.push(breakPos);
+      decorations.push(
+        Decoration.widget(
+          breakPos,
+          () => pageBreakWidget(nextPageIndex, widgetFreeSpace),
+          { key: `pagebreak-${nextPageIndex}`, side: 1 }
+        )
+      );
+
+      pageNum++;
+      pageTop = nextPageTop;
+      paragraphPageStart = pageTop;
+    }
+
+    lastBottom = bottom;
+    prevParagraphInfo = {
+      pos,
+      top,
+      bottom: effectiveBottom,
+      pageTop: paragraphPageStart,
+      paragraphType,
+    };
+  }
+
+  return { decorations, pageBreakPositions, extraHeightUpdates, reuseDecorations };
+}
+
+function buildPages(args: {
+  docSize: number;
+  pageBreakPositions: number[];
+  reuseDecorations: boolean;
+  previousPages?: { pageIndex: number; start: number; end: number }[];
+}) {
+  const { docSize, pageBreakPositions, reuseDecorations, previousPages } = args;
+  if (reuseDecorations && previousPages && previousPages.length) {
+    return previousPages;
+  }
+
+  const pages: { pageIndex: number; start: number; end: number }[] = [];
+  let curStart = 0;
+  let pageIndex = 1;
+
+  for (const breakPos of pageBreakPositions) {
+    pages.push({ pageIndex, start: curStart, end: breakPos });
+    curStart = breakPos;
+    pageIndex++;
+  }
+
+  pages.push({ pageIndex, start: curStart, end: docSize });
+  return pages;
+}
+
 
 
 
@@ -119,262 +380,97 @@ export function createPaginationPlugin(schema: Schema, opts?: { editorSelector?:
       init() {
         return {
           decorations: DecorationSet.empty,
-          heightUpdates: [] as { pos: number; height: number }[],
+          heightUpdates: [] as HeightUpdate[],
           pages:[] as { pageIndex: number; start: number; end: number }[]
           
         };
       },
 
-    apply(tr, prev, oldState, newState) {
-      
+    apply(tr, prev, _oldState, newState) {
       const meta = tr.getMeta(paginationKey) || {};
       const force = !!meta.force;
-       if (!tr.docChanged && !force) 
-        {
-          return prev;
-        }
 
-      // If user is actively typing inside a paragraph we want to avoid
-      // replacing page-break decorations (which causes visual jump). Instead
-      // keep previous decorations and only emit height updates. We'll set
-      // `reuseDecorations` when this case is detected during pagination loop.
-      let reuseDecorations = false;
-      if(newState.doc.textContent == "") {
-        return {
-        decorations: DecorationSet.empty,
-        heightUpdates: [] as { pos: number; height: number }[],
-        pages:[] as { pageIndex: number; start: number; end: number }[],
-      };
+      if (!tr.docChanged && !force) {
+        return prev;
       }
 
-        // Start timing pagination
-        const startTime = performance.now();
-        
-        //console.log(prev);
-        //console.log(oldState);
-      
-        const editorEl = document.querySelector(editorSelector) as HTMLElement | null;
-        const editorWidth = editorEl ? editorEl.clientWidth : DEFAULT_PAGE_WIDTH;
-      
-        const decorations: Decoration[] = [];
-        const heightUpdates: { pos: number; height: number }[] = [];
-      
-        // 1. Detect which paragraphs changed in this transaction
-        const changedPositions: number[] = [];
-        if (tr.docChanged) {
-          tr.steps.forEach(step => {
-            const map = step.getMap();
-            map.forEach((newStart, newEnd) => {
-            const size = newState.doc.content.size;
-
-            let start = Math.max(0, Math.min(newStart, size));
-            let end = Math.max(0, Math.min(newEnd, size));
-
-            if (start > end) [start, end] = [end, start];
-
-            if (start === end) return;
-
-            newState.doc.nodesBetween(start, end, (node, pos) => {
-              changedPositions.push(pos);
-            });
-          });
-
-          });
-        }
-      
-        // Cursor position for determining which paragraph is active
-        const selectionFrom = newState.selection.from;
-        const selectionTo = newState.selection.to;
-      
-        // --- Optimized Paragraph Height Caching & Pagination ---
-        // Use a Map to cache paragraph heights by position
-        let paragraphHeightMap: Map<number, number> = new Map();
-        if (Array.isArray(heightCache)) {
-          for (const { pos, height } of heightCache) {
-            paragraphHeightMap.set(pos, height);
-          }
-        }
-
-        // Collect all paragraph positions in order
-        const paragraphPositions: { pos: number; node: ProseMirrorNode }[] = [];
-        newState.doc.descendants((node, pos) => {
-          if (node.type.name === "paragraph") {
-            paragraphPositions.push({ pos, node });
-          }
-        });
-
-        // For each paragraph, only re-measure if changed, under cursor, or forced
-        let pageNum = 1;
-        let pageTop = 0;
-        let lastBottom = 0;
-        const pageBreakPositions: number[] = [];
-
-        for (const { pos, node } of paragraphPositions) {
-          let shouldMeasure = false;
-          // (1) height missing
-          if (!node.attrs.height || node.attrs.height <= 0) {
-            shouldMeasure = true;
-          }
-          // (2) cursor inside this paragraph → must remeasure live while typing
-          const cursorInside =
-            (selectionFrom >= pos && selectionFrom <= pos + node.nodeSize) ||
-            (selectionTo >= pos && selectionTo <= pos + node.nodeSize);
-          if (cursorInside) {
-            shouldMeasure = true;
-          }
-          // (3) this paragraph changed in this transaction
-          if (changedPositions.includes(pos)) {
-            shouldMeasure = true;
-          }
-          // (4) external force pagination call
-          if (force) {
-            shouldMeasure = true;
-          }
-
-          let height: number;
-          if (shouldMeasure) {
-            height = measureNodeHeight(serializer, node, editorWidth);
-            paragraphHeightMap.set(pos, height);
-            if (height !== node.attrs.height) {
-              heightUpdates.push({ pos, height });
-            }
-          } else {
-            // Use cached height if available, else fallback to node.attrs.height
-            height = paragraphHeightMap.get(pos) ?? node.attrs.height;
-          }
-
-          // --- PAGINATION LOGIC ---
-          const top = lastBottom;
-          const bottom = top + height;
-          const bottomRel = bottom - pageTop;
-
-if (bottomRel > PAGE_HEIGHT) {
-  const freeSpace = PAGE_HEIGHT - (lastBottom - pageTop);
-  const pageIndex = pageNum + 1;
-
-  //if (node && node.type.name === "paragraph") {
-    if (
-      node.attrs.paragraphType === "Dialogue" &&
-      freeSpace > 48 &&
-      node.attrs.height > freeSpace &&
-      node.attrs.height > 48
-    ) {
-      const dom = serializer.serializeNode(node);
-      const split = tryToSplitParagraph(dom, freeSpace, editorWidth);
-// Detect active typing inside this same paragraph
-const cursorInside =
-  newState.selection.from >= pos &&
-  newState.selection.from <= pos + node.nodeSize;
-
-// If user is typing AND split is not ready
-if (cursorInside && (!split || split.forceFit)) {
-  // Allow temporary overflow, do NOT jump paragraph to next page.
-  // Also mark that we should reuse previous decorations to avoid
-  // replacing widgets while typing (prevents visual jumping).
-  lastBottom = bottom;
-  reuseDecorations = true;
-  continue;
-}
-     if (split && !split.forceFit) {
-  const topHeight = split.topdata.height;
-  const bottomHeight = split.bottomdata.height;
-
-  // Keep stored node height as the TOTAL (top + bottom) so subsequent
-  // pagination passes use the full height.
-  heightUpdates.push({ pos: pos, height: topHeight + bottomHeight });
-
-  // widget position inside the paragraph: pos + 1 enters paragraph content
-  const widgetPos = pos + 1 + split.splitPos;
-
-  pageBreakPositions.push(widgetPos);
-const lastChar = node.attrs.charref || node.attrs.characterName || "CHARACTER";
-decorations.push(
-  Decoration.widget(
-    widgetPos , 
-    () => pageBreakWidget(pageIndex, 0 , split, lastChar),
-    { key: `contd-${pageIndex}` }
-  )
-);
-
-  // --- IMPORTANT: update layout state to account for the top fragment ---
-  // The top fragment occupies `topHeight` pixels on the current page.
-  // lastBottom tracks the cumulative bottom position so far; update it.
-  // `top` was computed earlier as `top = lastBottom`.
-  lastBottom = top + topHeight;
-
-  // Advance the page number and set pageTop to the new page start.
-  pageNum++;
-  pageTop = lastBottom;
-
-  // Stop fallback from executing: continue to next paragraph
-  continue;
-}
-    }
-
-    // Fallback (node not splittable or no split possible)
-    pageBreakPositions.push(pos);
-
-    decorations.push(
-      Decoration.widget(
-        pos,
-        () => pageBreakWidget(pageIndex, freeSpace),
-        { key: `pagebreak-${pageIndex}`, side: 1 }
-      )
-    );
-            pageNum++;
-            pageTop = lastBottom;
-          }
-          lastBottom = bottom;
-        }
-      
-        // 3. Build decoration set. If we're reusing previous decorations
-        // (typing inside a paragraph) then keep `prev.decorations` to
-        // avoid visual jumps. Otherwise create a fresh set.
-        const decoSet = reuseDecorations && prev && (prev as any).decorations
-          ? (prev as any).decorations
-          : DecorationSet.create(newState.doc, decorations);
-
-        const pages: { pageIndex: number; start: number; end: number }[] = [];
-        let curStart = 0;
-        let pageIndex = 1;
-        if (reuseDecorations && prev && (prev as any).pages) {
-          // Keep previous page ranges while typing to keep the layout stable.
-          // We still return heightUpdates so sizes will update once typing stops.
-          const prevPages = (prev as any).pages as typeof pages;
-          for (const p of prevPages) pages.push(p);
-        } else {
-          for (const br of pageBreakPositions) { // pageBreakPositions is list of pos where break inserted
-            pages.push({ pageIndex, start: curStart, end: br });
-            curStart = br;
-            pageIndex++;
-          }
-        }
-        // last page
-        pages.push({ pageIndex, start: curStart, end: newState.doc.content.size });
-        
-        // End timing and calculate duration
-        const endTime = performance.now();
-        const durationSeconds = (endTime - startTime) / 1000;
-        console.log(`Pagination completed in ${durationSeconds.toFixed(4)} seconds`);
-        decorationCache = decoSet;
-        heightCache = heightUpdates;
-        pageCache = pages;
-        // Return updated plugin state
+      if (newState.doc.textContent === "") {
         return {
-          decorations: decoSet,
-          heightUpdates,
-          pages
+          decorations: DecorationSet.empty,
+          heightUpdates: [] as HeightUpdate[],
+          pages: [] as { pageIndex: number; start: number; end: number }[],
         };
       }
-      
+
+      const startTime = performance.now();
+      const editorEl = document.querySelector(editorSelector) as HTMLElement | null;
+      const editorWidth = editorEl ? editorEl.clientWidth : DEFAULT_PAGE_WIDTH;
+      const changedPositions = collectChangedPositions(tr as Transaction, newState.doc);
+      const paragraphPositions = collectParagraphPositions(newState.doc);
+      const selection: SelectionRange = {
+        from: newState.selection.from,
+        to: newState.selection.to,
+      };
+
+      const { heightMap, heightUpdates: measuredHeightUpdates } = ensureParagraphHeights({
+        paragraphPositions,
+        serializer,
+        editorWidth,
+        selection,
+        changedPositions: new Set(changedPositions),
+        force,
+      });
+
+      const paginationResult = paginateParagraphs({
+        paragraphPositions,
+        heightMap,
+        selection,
+        serializer,
+        editorWidth,
+      });
+
+      const heightUpdates = [
+        ...measuredHeightUpdates,
+        ...paginationResult.extraHeightUpdates,
+      ];
+
+      const reuseDecorations = paginationResult.reuseDecorations;
+      const decorations =
+        reuseDecorations && prev && (prev as any).decorations
+          ? (prev as any).decorations
+          : DecorationSet.create(newState.doc, paginationResult.decorations);
+
+      const pages = buildPages({
+        docSize: newState.doc.content.size,
+        pageBreakPositions: paginationResult.pageBreakPositions,
+        reuseDecorations,
+        previousPages: reuseDecorations && prev ? (prev as any).pages : undefined,
+      });
+
+      const endTime = performance.now();
+      const durationSeconds = (endTime - startTime) / 1000;
+      console.log(`Pagination completed in ${durationSeconds.toFixed(4)} seconds`);
+
+      heightCache = Array.from(heightMap.entries()).map(([pos, height]) => ({
+        pos,
+        height,
+      }));
+
+      return {
+        decorations,
+        heightUpdates,
+        pages,
+      };
     },
 
-    appendTransaction(_, oldState, newState) {
+    },
+
+    appendTransaction(_: any, _oldState: EditorState, newState: EditorState) {
         //console.log(oldState);
       const pluginState = paginationKey.getState(newState) as any;
       if (!pluginState) return null;
 
-      const updates: { pos: number; height: number }[] = pluginState.heightUpdates || [];
+      const updates: HeightUpdate[] = pluginState.heightUpdates || [];
       if (!updates.length) return null;
 
       const tr = newState.tr;
@@ -394,7 +490,7 @@ decorations.push(
     },
 
     props: {
-      decorations(state) {
+      decorations(state: EditorState) {
         const s = paginationKey.getState(state) as any;
         return s ? s.decorations : DecorationSet.empty;
       },
@@ -545,7 +641,7 @@ interface SplitResult {
 }
 
 
-export function tryToSplitParagraph(
+export function findSplitPosition(
   dom: Node,
   freeSpace: number,
   editorWidth: number
