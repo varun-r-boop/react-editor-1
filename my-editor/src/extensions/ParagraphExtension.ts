@@ -1,13 +1,12 @@
 import { Paragraph } from "@tiptap/extension-paragraph";
 import { createPaginationPlugin } from "../plugins/paginationPlugin";
 import { mergeAttributes } from "@tiptap/core";
-import { ReactNodeViewRenderer } from "@tiptap/react";
-import { BlockMenuNodeView } from "./BlockMenuNodeView";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     ScenePopupCommand: {
       insertCharacterAndDialogue: (char : string) => ReturnType;
+      insertSceneHeader: (initialText?: string) => ReturnType;
     };
   }
 }
@@ -16,7 +15,7 @@ export const ParagraphExtension = Paragraph.extend({
   addAttributes() {
     return {
       paragraphType: {
-        default: "Action", // Action | Character | Dialogue
+        default: "Action", // Action | Character | Dialogue | SceneHeader
       },
 
       scenenumber: {
@@ -91,6 +90,20 @@ export const ParagraphExtension = Paragraph.extend({
               .run()
           );
         },
+      insertSceneHeader:
+        (initialText?: string) =>
+        ({ chain }) => {
+          const contentNode: Record<string, unknown> = {
+            type: this.name,
+            attrs: { paragraphType: "SceneHeader" },
+          };
+
+          if (initialText) {
+            contentNode.content = [{ type: "text", text: initialText }];
+          }
+
+          return chain().insertContent([contentNode]).run();
+        },
     };
   },
 
@@ -110,6 +123,10 @@ addKeyboardShortcuts() {
           characterName: defaultName,
         },
       });
+    },
+
+    "Ctrl-Shift-s": () => {
+      return this.editor.commands.insertSceneHeader();
     },
 
     Enter: () => {
@@ -141,20 +158,12 @@ addKeyboardShortcuts() {
       //    exit the Dialogue block
       // ---------------------------------------------------
       if (attrs.paragraphType === "Dialogue") {
-        const isEmpty = node.textContent.trim().length === 0;
+        this.editor.commands.insertContent({
+          type: "paragraph",
+          attrs: { paragraphType: "Action" },
+        });
 
-        //if (isEmpty) {
-          // Insert a normal Action paragraph and exit Dialogue
-          this.editor.commands.insertContent({
-            type: "paragraph",
-            attrs: { paragraphType: "Action" },
-          });
-
-          return true;
-        //}
-
-        // otherwise: allow normal Enter to create another Dialogue line
-        return false;
+        return true;
       }
 
       // Normal Enter for all other cases
@@ -168,8 +177,8 @@ addKeyboardShortcuts() {
     const schema = this.editor?.schema;
     return schema ? [createPaginationPlugin(schema, { editorSelector: ".ProseMirror" })] : [];
   },
- addNodeView() {
-  return (props) => new BlockMenuNodeView(props);
-},
+//  addNodeView() {
+//   return (props) => new BlockMenuNodeView(props);
+// },
 
 });

@@ -141,6 +141,15 @@ p[paragraphtype="Dialogue"] {
   line-height: 1.3;
   white-space: pre-wrap;
 }
+  /* Scene Header */
+  p[paragraphtype="SceneHeader"] {
+    text-align: left;
+    font-weight: bold;
+    font-size: 20px;
+    margin-top: 20px;
+    margin-bottom: 0px;
+    letter-spacing: 1px;
+  }
 .more-widget {
   font-family: Courier, monospace;
   text-align: center;
@@ -167,4 +176,44 @@ p[paragraphtype="Dialogue"] {
   text-align: center;
   margin-top: 8px;
   font-style: italic;
+}
+
+.dark-editor-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 32px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toolbar-icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #4c4f55;
+  background: #35373c;
+  color: #f2f5f9;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+}
+
+.toolbar-icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.toolbar-icon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar-icon-button:not(:disabled):hover {
+  background: #4c4f55;
+  border-color: #6a6d75;
+  transform: translateY(-1px);
 }
