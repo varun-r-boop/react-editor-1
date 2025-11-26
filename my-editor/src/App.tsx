@@ -19,6 +19,15 @@ export default function App() {
     editor.chain().focus().insertSceneHeader(prefill).run();
   };
 
+  const handleInsertCharacterAndDialogue = () => {
+    if (!editor) return;
+    const defaultName = "CHARACTER NAME";
+    const input = window.prompt("Character name", defaultName);
+    if (input === null) return;
+    const finalName = input.trim() || defaultName;
+    editor.chain().focus().insertCharacterAndDialogue(finalName).run();
+  };
+
   React.useEffect(() => {
     if (editor) forcePagination(editor.view);
   }, [editor]);
@@ -54,6 +63,16 @@ export default function App() {
     <div className="dark-editor-shell">
       <div className="dark-editor-area">
         <div className="dark-editor-toolbar" role="toolbar" aria-label="Scene header insertion">
+          <button
+            type="button"
+            className="toolbar-icon-button"
+            aria-label="Insert Character and Dialogue block"
+            onClick={handleInsertCharacterAndDialogue}
+            disabled={!editor}
+          >
+            <CharacterIcon />
+            <span>Character + Dialogue</span>
+          </button>
           {sceneHeaderButtons.map(({ id, label, description, prefill, Icon }) => (
             <button
               key={id}
@@ -97,6 +116,15 @@ function ExteriorIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 2 2 9h3v11h5v-6h4v6h5V9h3L12 2zm0 2.3 4.74 3.4H7.26L12 4.3z" />
+    </svg>
+  );
+}
+
+function CharacterIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 12c4.418 0 8 2.239 8 5v3H4v-3c0-2.761 3.582-5 8-5z" />
+      <path d="M6 21v-1c0-1.657 2.686-3 6-3s6 1.343 6 3v1H6z" opacity=".3" />
     </svg>
   );
 }
